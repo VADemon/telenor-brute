@@ -1,9 +1,11 @@
-How to start the script in shell:
+###How to start the script in shell:
+cd into the same directory as brute.lua
+Launch the Lua shell by typing "lua"
+Then enter this code:
 ```lua
 dofile("brute.lua")
 doBruteforce( <fromString> , <toString>, <fromStringLength>, <toStringLength>)
 ```
-NOTE: You must cd into the same directory as brute.lua
 
 Installation:
 You need cURL and Lua5.1 to be installed
