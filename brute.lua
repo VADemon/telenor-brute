@@ -29,7 +29,8 @@ function rangeToList( rangeString )
 end
 
 bruteforceChars = rangeToList(rangeString)
-for k,v in pairs( bruteforceChars ) do io.write("("..type(k)..")" .. k .. ": " .. string.char(v) .. "\t") end print()
+print("Current bruteforce dictionary: ")
+for k,v in pairs( bruteforceChars ) do io.write(k .. "=" .. string.char(v) .. "\t") end print()
 
 function raiseCharID( id )
 	for c = 1, #bruteforceChars do
@@ -89,11 +90,48 @@ function bruteforceNextString( lastString, startLength, endLength )
 	end
 end
 
+print("Full Syntax: doBruteforce( 'fromString', 'toString', minStringLength, maxStringLength )")
+print("Either fromString-toString or minLength, maxLength are optional")
 function doBruteforce(startString, finalString, startLength, endLength)
-	local nextString = startString or ""
+	local nextString
+	
+	if type(startString) == "string" then
+		nextString = startString
+	else
+		print("fromString is not specified! The range will start from an empty string.\n")
+		nextString = ""
+		os.execute("sleep 3")
+	end
+	
+	if type(finalString) == "string" then
+		print("Range set from '".. nextString .."' to '".. finalString .."'\n")
+	else
+		print("toString is not specified, the range end is now only limited by maxStringLength!\n")
+		finalString = nil
+		os.execute("sleep 3")
+	end
+	
+	if type(startLength) ~= "number" then
+		if type(startString) ~= "string" then
+			print("minStringLength is not specified! The bruteforce will start from a single character string\n")
+		end
+		startLength = 1
+	end
+	
+	if type(endLength) ~= "number" then
+		if finalString then
+			endLength = #finalString
+		else
+			print("ERROR: You did not specify maxStringLength nor toString!")
+			print("Quitting!")
+			os.exit(1)
+		end
+	end
+	
 	local blacklist = loadBlacklist()
 	local batchList = {}
-	local batchSize = 24	-- Amount of parallel CURL instances, e.g. check 24 URLs at once -> 24 cURL instances
+	local batchSize = 100	-- Amount of parallel CURL instances, e.g. check 24 URLs at once -> 24 cURL instances
+	
 	repeat
 		nextString = bruteforceNextString( nextString, startLength, endLength )
 		
@@ -112,7 +150,7 @@ function doBruteforce(startString, finalString, startLength, endLength)
 			
 		end
 		
-		if finalString and nextString and nextString == finalString then
+		if type(nextString) == "nil" or (finalString and nextString and nextString == finalString) then
 			curlGrab(batchList)
 			batchList = {}
 			print("Finished! Reached the finalString: ".. finalString .." (last string processed)")
@@ -122,9 +160,13 @@ function doBruteforce(startString, finalString, startLength, endLength)
 		end
 		
 		--print(nextString, nextString and #nextString)
-	until nextString == nil
+	until (nextString == nil) or (fileExists("STOP") == true)
 	
-	print("Looks like we've hit the limit of the maxStringLength. Finished!")
+	if fileExists("STOP") == true then
+		print("STOP file detected! Quitting...")
+	else
+		print("Looks like we've hit the bruteforce target. Finished! Quitting...")
+	end
 	os.exit(0)
 	return true
 end
@@ -142,14 +184,20 @@ end
 function curlGrab( usernameList )
 	local command = ""
 	local usernamesString = ""
+	local lastUsername = "-undefined-"
 	
 	for i = 1, #usernameList do
 		local username = usernameList[i]
 		command = command .. "curl -I -L --max-time 2 --silent --write-out 'user".. username .." %{http_code}\\n' http://home.online.no/~".. usernameList[i] .. "/ & \n"
 		usernamesString = usernamesString .. username .. "  "
+		
+		if i == #usernameList then
+			lastUsername = username
+		end
 	end
 	command = command .. "wait"
 	
+	print("Next up:")
 	print(usernamesString)
 	local pipe = io.popen(command)
 	local serverResponse = pipe:read("*a")
@@ -157,7 +205,7 @@ function curlGrab( usernameList )
 	--for i = 1, #usernameList do
 	--	serverResponse = serverResponse .. "\n" .. pipe:read("*a")
 	--end
-	os.execute("sleep 0.5")
+	os.execute("sleep 0.1")
 	pipe:close()
 	
 	for	username, status_code in serverResponse:gmatch("user(.-) (%d+)") do
@@ -173,6 +221,8 @@ function curlGrab( usernameList )
 			os.execute("echo ~".. username .." >> ".. status_code ..".txt")
 		end
 	end
+	
+	print("Last checked username: ~".. lastUsername)
 end
 
 function loadBlacklist()
@@ -191,4 +241,15 @@ function loadBlacklist()
 	print("Blacklist loaded, ".. entryCount .." entries!")
 	os.execute("sleep 2")
 	return blacklist
+end
+
+function fileExists( path )
+
+	local fileHandle = io.open(path, "r")
+	if fileHandle then
+		fileHandle:close()
+		return true
+	end
+	
+	return false
 end
