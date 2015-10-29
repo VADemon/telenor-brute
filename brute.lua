@@ -116,12 +116,16 @@ function doBruteforce(startString, finalString, startLength, endLength)
 			curlGrab(batchList)
 			batchList = {}
 			print("Finished! Reached the finalString: ".. finalString .." (last string processed)")
+			
+			os.exit(0)
 			return true
 		end
 		
 		--print(nextString, nextString and #nextString)
 	until nextString == nil
 	
+	print("Looks like we've hit the limit of the maxStringLength. Finished!")
+	os.exit(0)
 	return true
 end
 
