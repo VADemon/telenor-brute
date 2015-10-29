@@ -1,0 +1,190 @@
+-- http://www.asciitable.com/index/asciifull.gif
+
+local rangeString = "45, 48-57, 97-122"
+
+function rangeToList( rangeString )
+	rangeString = string.gsub(rangeString, " ", "")
+	local rangeList, i = {}, 1
+	-- ToDO add a function to easily add it in a for i=1,y loop
+	for word in string.gmatch(rangeString, "[^,]%d+") do
+		rangeList[i] = tonumber(word)
+		
+			if rangeList[i] > 0 then
+				i = i+1 --proceed
+			else --it's an array of IDs 204-207
+				local prev, curr = rangeList[i-1], rangeList[i]*-1 --faster than math.abs()
+				local step = 1
+				if prev > curr then --if the first number is bigger than the second one (e.g. "470-464")
+					step = -1 --we need to count downwards
+				end
+				i = i-1 --trust me. We don't wanna to have the same ID twice
+				for x = prev, curr, step do
+					rangeList[i] = x
+					i = i+1
+				end
+			end
+	end
+		
+	return rangeList
+end
+
+bruteforceChars = rangeToList(rangeString)
+for k,v in pairs( bruteforceChars ) do io.write("("..type(k)..")" .. k .. ": " .. string.char(v) .. "\t") end print()
+
+function raiseCharID( id )
+	for c = 1, #bruteforceChars do
+		if bruteforceChars[ c ] == id then
+			local carry = false	-- carry means that the next followed char must be raised as well
+			
+			if c ~= #bruteforceChars then
+				return bruteforceChars[ c+1 ], carry
+			else
+				carry = true
+				return bruteforceChars[ 1 ], carry
+			end
+		end
+	end
+end
+
+function raiseChar( char )
+	local id, carry = raiseCharID(string.byte( char ))
+	return string.char(id), carry
+end
+
+function raiseString( str )
+	local carry = false
+	local currentCharPosition = #str
+	
+	repeat
+		local begin, targetChar, ending = string.sub(str, 1, currentCharPosition - 1), string.sub(str, currentCharPosition, currentCharPosition), string.sub(str, currentCharPosition + 1)
+		targetChar, carry = raiseChar( targetChar )
+		str = begin .. targetChar .. ending
+		if currentCharPosition == 1 then
+			if carry then
+				str = string.char(bruteforceChars[ 1 ]) .. str
+			end
+			
+			break
+		else
+			currentCharPosition = currentCharPosition - 1
+		end
+	until carry == false
+	
+	return str
+end
+
+function bruteforceNextString( lastString, startLength, endLength )
+	if not lastString or #lastString == 0 then
+		return string.char(bruteforceChars[ 1 ]):rep( startLength )
+	end
+
+	--
+	
+	local nextString = raiseString( lastString )
+	
+	if #nextString <= endLength then
+		return nextString
+	else
+		return
+	end
+end
+
+function doBruteforce(startString, finalString, startLength, endLength)
+	local nextString = startString or ""
+	local blacklist = loadBlacklist()
+	local batchList = {}
+	local batchSize = 24	-- Amount of parallel CURL instances, e.g. check 24 URLs at once -> 24 cURL instances
+	repeat
+		nextString = bruteforceNextString( nextString, startLength, endLength )
+		
+		if nextString and blacklist[ nextString ] ~= true then
+			-- run curl
+			local isValid = validUsername(nextString)
+			if isValid then
+				batchList[ #batchList + 1] = nextString
+				
+				if #batchList >= batchSize then
+					curlGrab(batchList)
+					batchList = {}
+				end
+				--print("valid: ".. nextString)
+			end
+			
+		end
+		
+		if finalString and nextString and nextString == finalString then
+			curlGrab(batchList)
+			batchList = {}
+			print("Finished! Reached the finalString: ".. finalString .." (last string processed)")
+			return true
+		end
+		
+		--print(nextString, nextString and #nextString)
+	until nextString == nil
+	
+	return true
+end
+
+function validUsername(username)
+	if username:sub(1,1):find("%a") then
+		local subUsername = username:sub(3)
+		if not subUsername:find("[^%w%-]") then
+			-- all valid
+			return true
+		end
+	end
+end
+
+function curlGrab( usernameList )
+	local command = ""
+	local usernamesString = ""
+	
+	for i = 1, #usernameList do
+		local username = usernameList[i]
+		command = command .. "curl -I -L --max-time 2 --silent --write-out 'user".. username .." %{http_code}\\n' http://home.online.no/~".. usernameList[i] .. "/ & \n"
+		usernamesString = usernamesString .. username .. "  "
+	end
+	command = command .. "wait"
+	
+	print(usernamesString)
+	local pipe = io.popen(command)
+	local serverResponse = pipe:read("*a")
+	
+	--for i = 1, #usernameList do
+	--	serverResponse = serverResponse .. "\n" .. pipe:read("*a")
+	--end
+	os.execute("sleep 0.5")
+	pipe:close()
+	
+	for	username, status_code in serverResponse:gmatch("user(.-) (%d+)") do
+		status_code = tonumber(status_code)
+		print("~"..username, status_code)
+		if status_code == 200 then
+			os.execute("echo ~".. username .." >> 200.txt")
+		elseif status_code == 404 then
+			os.execute("echo ~".. username .." >> 404.txt")
+		elseif status_code == 0 then
+			os.execute("echo ~".. username .." >> 000.txt")
+		else
+			os.execute("echo ~".. username .." >> ".. status_code ..".txt")
+		end
+	end
+end
+
+function loadBlacklist()
+	local blacklist = {}
+	local filePath = "01_telenor"
+	local file = assert(io.open(filePath, "r"))
+	local entryCount = 0
+	
+	for line in file:lines() do
+		if blacklist[ line ] ~= true then
+			blacklist[ line ] = true
+			entryCount = entryCount + 1
+		end
+	end
+	
+	print("Blacklist loaded, ".. entryCount .." entries!")
+	os.execute("sleep 2")
+	return blacklist
+end
