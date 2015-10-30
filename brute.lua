@@ -164,6 +164,7 @@ function doBruteforce(startString, finalString, startLength, endLength)
 	
 	if fileExists("STOP") == true then
 		print("STOP file detected! Quitting...")
+		os.remove("STOP")
 	else
 		print("Looks like we've hit the bruteforce target. Finished! Quitting...")
 	end
