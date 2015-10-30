@@ -91,7 +91,7 @@ function bruteforceNextString( lastString, startLength, endLength )
 end
 
 print("Full Syntax: doBruteforce( 'fromString', 'toString', minStringLength, maxStringLength )")
-print("Either fromString-toString or minLength, maxLength are optional")
+print("Either fromString-toString or minLength, maxLength are optional\n")
 function doBruteforce(startString, finalString, startLength, endLength)
 	local nextString
 	
@@ -131,6 +131,7 @@ function doBruteforce(startString, finalString, startLength, endLength)
 	local blacklist = loadBlacklist()
 	local batchList = {}
 	local batchSize = 100	-- Amount of parallel CURL instances, e.g. check 24 URLs at once -> 24 cURL instances
+	batchLogs = dofile("logging.lua")
 	
 	repeat
 		nextString = bruteforceNextString( nextString, startLength, endLength )
@@ -151,22 +152,28 @@ function doBruteforce(startString, finalString, startLength, endLength)
 		end
 		
 		if type(nextString) == "nil" or (finalString and nextString and nextString == finalString) then
-			curlGrab(batchList)
-			batchList = {}
-			print("Finished! Reached the finalString: ".. finalString .." (last string processed)")
 			
-			os.exit(0)
-			return true
+			break
 		end
 		
 		--print(nextString, nextString and #nextString)
 	until (nextString == nil) or (fileExists("STOP") == true)
 	
+	if #batchList ~= 0 then
+		curlGrab(batchList)
+		batchList = {}
+	end
+	
+	
 	if fileExists("STOP") == true then
 		print("STOP file detected! Quitting...")
+	elseif(finalString and nextString and nextString == finalString)
+		print("Finished! Reached the finalString: ".. finalString .." (last string processed)")
 	else
 		print("Looks like we've hit the bruteforce target. Finished! Quitting...")
 	end
+	
+	batchLogs.closeAll()
 	os.exit(0)
 	return true
 end
@@ -188,7 +195,7 @@ function curlGrab( usernameList )
 	
 	for i = 1, #usernameList do
 		local username = usernameList[i]
-		command = command .. "curl -I -L --max-time 2 --silent --write-out 'user".. username .." %{http_code}\\n' http://home.online.no/~".. usernameList[i] .. "/ & \n"
+		command = command .. "curl -I -L --max-time 3.5 --silent --write-out 'user".. username .." %{http_code}\\n' http://home.online.no/~".. usernameList[i] .. "/ & \n"
 		usernamesString = usernamesString .. username .. "  "
 		
 		if i == #usernameList then
@@ -202,27 +209,43 @@ function curlGrab( usernameList )
 	local pipe = io.popen(command)
 	local serverResponse = pipe:read("*a")
 	
-	--for i = 1, #usernameList do
-	--	serverResponse = serverResponse .. "\n" .. pipe:read("*a")
-	--end
 	os.execute("sleep 0.1")
 	pipe:close()
 	
+	
+	local responseStats = {}	-- collect the statistics instead of printing everything to console
+	
 	for	username, status_code in serverResponse:gmatch("user(.-) (%d+)") do
 		status_code = tonumber(status_code)
-		print("~"..username, status_code)
+		
+		responseStats = tableIncrementValue( responseStats, status_code, 1 )
+		
 		if status_code == 200 then
-			os.execute("echo ~".. username .." >> 200.txt")
+		
+			print("~"..username, status_code, "OK")
+			batchLogs.line("200.txt", "~".. username)
+			
 		elseif status_code == 404 then
-			os.execute("echo ~".. username .." >> 404.txt")
+		
+			--os.execute("echo ~".. username .." >> 404.txt")
+			
 		elseif status_code == 0 then
-			os.execute("echo ~".. username .." >> 000.txt")
+		
+			batchLogs.line("000.txt", "~".. username)
+			
 		else
+			print("Detected an unexpected response code!")
 			os.execute("echo ~".. username .." >> ".. status_code ..".txt")
 		end
 	end
 	
-	print("Last checked username: ~".. lastUsername)
+	io.write("Received status codes: ")
+	for k, v in pairs( responseStats ) do
+		io.write("[".. k .."]: ".. v ..", ")
+	end
+	io.write("\n")
+	
+	print("Last checked username: ~".. lastUsername .."\n")
 end
 
 function loadBlacklist()
@@ -238,14 +261,26 @@ function loadBlacklist()
 		end
 	end
 	
+	file:close()
 	print("Blacklist loaded, ".. entryCount .." entries!")
 	os.execute("sleep 2")
 	return blacklist
 end
 
-function fileExists( path )
+-- table, key, amount
+function tableIncrementValue( tabl, key, amount )
+	local value = tabl[ key ] or 0
+	local amount = amount or 1
+	
+	if value then
+		tabl[ key ] = value + amount
+		return tabl
+	end
+end
 
+function fileExists( path )
 	local fileHandle = io.open(path, "r")
+	
 	if fileHandle then
 		fileHandle:close()
 		return true
